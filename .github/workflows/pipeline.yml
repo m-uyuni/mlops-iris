@@ -1,0 +1,123 @@
+name: MLOps Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Minimal permissions for security
+permissions:
+  contents: read
+  packages: write  # Only needed for GHCR push
+
+jobs:
+  data-preparation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Prepare data
+        run: python src/data_preparation.py
+      - name: Validate data
+        run: pytest tests/test_data.py
+      - name: Save processed data
+        uses: actions/upload-artifact@v4
+        with:
+          name: processed-data
+          path: data/processed/
+
+  train-model:
+    runs-on: ubuntu-latest
+    needs: data-preparation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Download processed data
+        uses: actions/download-artifact@v4
+        with:
+          name: processed-data
+          path: data/processed/
+      - name: Train model
+        run: |
+          python src/train.py
+          python src/evaluate.py
+      - name: Save model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model
+          path: models/
+
+  evaluate-model:
+    runs-on: ubuntu-latest
+    needs: train-model
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Download processed data
+        uses: actions/download-artifact@v4
+        with:
+          name: processed-data
+          path: data/processed/
+      - name: Download trained model
+        uses: actions/download-artifact@v4
+        with:
+          name: trained-model
+          path: models/
+      - name: Evaluate model
+        run: python src/evaluate.py
+      - name: Upload metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics
+          path: results/metrics.txt
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: evaluate-model
+    steps:
+      - uses: actions/checkout@v4
+      
+      # Secure GHCR login using auto-generated GITHUB_TOKEN
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}  # Auto-secured
+
+      # Build and push with cache and metadata
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./app/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/iris-model:latest
+            ghcr.io/${{ github.repository_owner }}/iris-model:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Optional: Add vulnerability scanning
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.16
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/iris-model:${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
