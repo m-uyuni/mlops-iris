@@ -115,7 +115,7 @@ jobs:
 
       # Optional: Add vulnerability scanning
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.16
+        uses: aquasecurity/trivy-action@0.30.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/iris-model:${{ github.sha }}
           format: 'table'
