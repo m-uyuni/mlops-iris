@@ -29,19 +29,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+      - name: Create output directories
+        run: |
+          mkdir -p models
+          mkdir -p results
       - name: Train model
         run: |
           python src/train.py
           python src/evaluate.py
       - name: Validate model
         run: pytest tests/test_model.py
-      - name: Print working directory
-        run: pwd
-      - name: List all files
-        run: ls -R
-      - name: Check generated files
+      - name: Debug file existence
         run: |
+          echo "Checking models directory..."
           ls models/
+          echo "Checking results directory..."
           ls results/
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
